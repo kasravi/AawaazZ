@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>title</title>
+	<style type="text/css">
+            .visualizer {
+                display: block;
+                background-color: black;
+            }
+        </style>
+	<script src="pitchfinder.js"></script>
+	</head>
+  <body>
+	  <canvas class="visualizer" width="800" height="330"></canvas>
+	  <p id="error"></p>
+    <script>
+	var scriptNode, audioCtx, source, detector, analyser, dataSource="",buf=[],recbuf=[],onsetbuf=[],start=false,count=0,lenght=0,c=0,countreal=0,fact=0,frac=false,reallength=0,en=0,st=0;
+	var fftSize = 2048;
+	var pfreq = -2000;
+	var onsetThresh = 0.02;
+	var canvas = document.querySelector('.visualizer');
+	var canvasCtx = canvas.getContext("2d");
+			
+	var lesson = 1;
+	var firsttime = true;
+	setupAudio();
+	//playSound('voice.wav',0,3000);
+	//recordSound(5000);
+	partA();
+	
+	function initiatebufs(){
+		buf=[];
+		recbuf=[];
+		recbuf[0]=true;
+		onsetbuf=[];
+		start=false;
+		count=0;
+		lenght=0;
+		c=0;
+		countreal=0;
+	}
+	
+	function partA() {
+		
+		if(firsttime){
+			firsttime=false;
+			initiatebufs();
+			playSound('data/'+lesson+'.wav');
+			return;
+		}
+		var res=0;
+		var count2=0
+		for(var i=0;buf&&i<buf.length;i++){
+			// if(buf[i]&&recbuf[i]){
+			// res+=(buf[i]-recbuf[i])*(buf[i]-recbuf[i]);}
+			if(!isNaN(buf[i])){
+				res+=Math.abs(buf[i]-Math.round(buf[i]));
+			count2++}
+		}
+		var baseError = res/count2;
+		res=[];
+		var count3=0;
+		
+		for(var i=0;buf&&i<buf.length;i++){
+			// if(buf[i]&&recbuf[i]){
+			// res+=(buf[i]-recbuf[i])*(buf[i]-recbuf[i]);}
+			if(!isNaN(buf[i])&&!isNaN(recbuf[i])){
+				res[i]=Math.abs(buf[i]-recbuf[i]);
+			count3++}
+		}
+		var recError = res.filter(f=>f).reduce((a, b) => a + b, 0)/count2;
+		var maxErrorraw = Math.max(...res.filter(f=>f));
+		
+		var totError = (Math.abs(recError - baseError)*100);
+		var maxError = (Math.abs(maxErrorraw - baseError)*100);
+		
+		if(count3<(count2*0.3)){
+			document.getElementById('error').innerHTML = 'only heard ' + Math.round(count3*100/count2)+'% of it' 
+			playSound('data/'+lesson+'.wav',st,en);
+				return;
+		}
+		else if(!isNaN(totError)){
+			document.getElementById('error').innerHTML = 'Your Error is ' + totError + ' cents' + 'and max error is' + maxError + 'cents'  ;
+			if(totError<20 && maxError<30)
+			{
+				if(!frac || (length>reallength*1000-5))
+				{
+					lesson++;
+					frac=false;
+					if(lesson>8)
+						return;
+					initiatebufs();
+					playSound('data/'+lesson+'.wav');//,25000,30000);
+					return;
+				}
+				var t = en-st;
+				st-=t/2;
+				if(st<0)st=0;
+				en+=t/2;
+				if(en>reallength*1000)en=reallength*1000;
+				initiatebufs();
+				playSound('data/'+lesson+'.wav',st,en);
+				return;
+			}
+			else{
+				frac=true;
+				var i = res.indexOf(maxErrorraw);
+				en = Math.min(...(getAllIndexes(onsetbuf,true).filter(f=>f>=i)))*fact;
+				st = Math.max(...(getAllIndexes(onsetbuf,true).filter(f=>f<=i)))*fact;
+				if(st-en<1000)en=st+1000;
+				initiatebufs();
+				playSound('data/'+lesson+'.wav',st,en);
+				return;
+			}
+		}
+		
+		
+		
+	}
+
+	function getAllIndexes(arr, val) {
+    var indexes = [], i;
+	indexes.push(0);
+    for(i = 1; i < arr.length; i++)
+        if (arr[i] === val)
+            indexes.push(i);
+    return indexes;
+}
+
+	function partB(t) {
+		//console.log(buf);
+		recordSound(t);
+		
+	}
+
+	function findFundamentalFreq(s){
+	
+		var estimate = detector(s);
+		freq = estimate.freq;
+		
+		
+		
+		if(freq<65.41||freq>10000){
+			freq = NaN;
+		}
+		//console.log(freq);
+		
+		freq = 69+12*Math.log2(freq/440);
+		
+		freq =freq%12 + 38;
+		
+		//console.log(freq);
+		
+		if(freq>49.5)
+			freq-=12;
+		
+		
+		return freq;
+	}
+	
+	function recordSound(t){
+		dataSource="mic";
+		 navigator.mediaDevices.getUserMedia({audio: true}).then( function(stream) {
+			 //console.log("Mic On");
+			source = audioCtx.createMediaStreamSource(stream);
+			scriptNode.connect(audioCtx.destination);
+			analyser.connect(scriptNode);
+			source.connect(analyser);
+            //source.connect(audioCtx.destination);
+			source.onended = endFunction;
+			count=0;
+			setTimeout(function(){
+				endFunction();
+				//console.log("Mic Off");
+			}, t);
+        });
+	}
+	
+	function playSound(s,f,t){
+		f+=0.0001;
+		f=f||null;
+		t=t||null;
+		if(t<f){
+		console.log("Illegal duration");
+			return;
+		}
+		
+		dataSource = "file";
+		
+		request = new XMLHttpRequest();
+		request.open('GET', s, true);
+		request.responseType = 'arraybuffer';
+		request.onload = function() {
+		audioCtx.decodeAudioData(request.response, function(buffer) {
+			source = audioCtx.createBufferSource();
+			source.buffer = buffer;
+			scriptNode.connect(audioCtx.destination);
+			analyser.connect(scriptNode);
+			source.connect(analyser);
+            source.connect(audioCtx.destination);
+			source.onended = endFunction;
+			
+			if(t!==null&&f!=null){
+				f/=1000;
+				t/=1000;
+				length = (t-f)*1500;
+				source.start(0,f,t-f);}
+			else{
+				if(!frac)reallength=source.buffer.duration;
+					
+				length = source.buffer.duration*1500;
+				source.start(0);
+			}
+			
+			count=0;
+			},
+				function(e){"Error with decoding audio data" + e.err});
+			}
+		request.send();
+	}
+	function resetSpectrogram(h){
+		c=0;
+		if(h){
+			canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+			for(var i =38;i<50;i++){
+				drawline(0,i,canvas.width,1,'#0000FF');
+			}
+			
+		}
+	}
+	
+	function isonset(freq)
+	{
+		if(freq){
+			var res = false;
+			if(freq-pfreq>onsetThresh)
+				res = true;
+			pfreq = freq;
+			return res;
+		}
+		return false;
+	}
+	
+	function drawSpectrogram (freq,s,w) {
+			//console.log(freq);
+			step = 33*(canvas.width*fftSize)/(length*1000);
+			//if(freq===NaN){freq=-100};
+						
+				
+				drawline(c,freq,step,w,s)
+				c+=step;
+			
+			}
+	function drawline(y,x,w,ww,color){
+		x*=20;
+		x-=700;
+				
+		var ctx=canvas.getContext("2d");
+		ctx.beginPath();
+		ctx.moveTo(y,canvas.height-x);
+		ctx.lineTo(y+w,canvas.height-x);
+		ctx.lineWidth = ww;
+		ctx.strokeStyle = color;
+		//ctx.closePath();
+		ctx.stroke();
+	}
+	function endFunction(t) {
+		setTimeout(function(){
+			start=false;
+			scriptNode.disconnect(audioCtx.destination);
+			analyser.disconnect(scriptNode);
+			source.disconnect(analyser);
+			
+			if(dataSource==="file"){
+			source.disconnect(audioCtx.destination);
+				partB(length);
+			}
+			else if(dataSource==="mic"){
+				fact= (length/1.5)/count;
+				partA();
+			}
+		},100);
+	}
+			
+	function setupAudio(){
+		audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+		scriptNode = audioCtx.createScriptProcessor(fftSize, 1, 1);
+		
+		analyser = audioCtx.createAnalyser();
+		analyser.fftSize = fftSize;
+		analyser.minDecibels = -90;
+		analyser.maxDecibels = -10;
+		analyser.smoothingTimeConstant = 0.85;
+
+		
+		
+		if (!navigator.getUserMedia){
+			console.log("F");
+		}
+		
+		detector = PitchFinder.YIN({
+			samplerate: audioCtx.sampleRate,
+			buffersize: fftSize
+		});
+		
+		
+			
+		scriptNode.onaudioprocess = function () {
+					
+					var signal = new Float32Array(fftSize);
+					analyser.getFloatTimeDomainData(signal);
+					var freq = findFundamentalFreq(signal);
+					var onset = isonset(freq);
+					//console.log(freq);
+					if(dataSource==="file" || start || freq){
+					if(!start && dataSource==="file"){
+						resetSpectrogram(true);
+					}
+					else if(!start && dataSource==="mic"){
+						resetSpectrogram(false);
+					}
+					
+						start=true;
+						
+						if(dataSource==="file"){
+							
+							buf[count]=freq;
+							recbuf[count]=NaN;
+							onsetbuf[count]=onset;
+							drawSpectrogram(freq,'#ff0000',2);
+							//if(onsetbuf[count]===true)drawSpectrogram(freq,'#ffffff',6);
+							//document.getElementById("fr").innerHTML += "--" + freq;
+						}
+						else if(dataSource==="mic"){
+							recbuf[count]=freq
+							drawSpectrogram(freq,'#00ff00',6)
+							
+						}
+						count++;
+					}
+		}
+	}
+	</script>
+  
+  </body>
+</html>
